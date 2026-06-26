@@ -1,0 +1,28 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# build outputs
+.next
+dist
+out
+coverage
+
+# local environment
+.env
+.env.*
+!.env.example
+
+# local databases
+*.db
+*.db-journal
+prisma/dev.db
+
+# logs and caches
+*.log
+*.tsbuildinfo
+.vercel
+
+# OS files
+.DS_Store
+Thumbs.db

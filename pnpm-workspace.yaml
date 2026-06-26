@@ -1,0 +1,9 @@
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  sharp: true
+minimumReleaseAgeExclude:
+  - '@langchain/langgraph-sdk@1.9.24'
+  - '@langchain/langgraph@1.4.5'

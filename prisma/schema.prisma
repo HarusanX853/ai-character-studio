@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Character {
+  id              String             @id @default(cuid())
+  name            String             @unique
+  displayName     String?
+  avatarUrl       String?
+  provider        String
+  model           String
+  roleArchetype   String?
+  personalityJson Json
+  backstory       String
+  publicGoal      String?
+  privateGoal     String?
+  secretsJson     Json?
+  speechStyle     String?
+  costPolicyJson  Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  episodes        EpisodeCharacter[]
+  turns           Turn[]             @relation("SpeakerTurns")
+  memories        Memory[]
+  sharedItems     SharedBoardItem[]
+
+  @@index([provider, model])
+}
+
+model Episode {
+  id              String             @id @default(cuid())
+  title           String             @unique
+  format          String
+  setting         String
+  publicFactsJson Json?
+  hiddenFactsJson Json?
+  rulesJson       Json?
+  budgetUsd       Float              @default(3)
+  maxRounds       Int                @default(12)
+  status          String             @default("draft")
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  characters      EpisodeCharacter[]
+  turns           Turn[]
+  memories        Memory[]
+  sharedBoard     SharedBoardItem[]
+  checkpoints     EpisodeCheckpoint[]
+  llmCalls        LlmCall[]
+
+  @@index([status])
+  @@index([format])
+}
+
+model EpisodeCharacter {
+  id              String    @id @default(cuid())
+  episodeId       String
+  characterId     String
+  roleInEpisode   String?
+  hiddenFactsJson Json?
+  createdAt       DateTime  @default(now())
+  episode         Episode   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  character       Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, characterId])
+  @@index([characterId])
+}
+
+model Turn {
+  id                 String    @id @default(cuid())
+  episodeId          String
+  roundIndex         Int
+  speakerCharacterId String
+  inputContextJson   Json?
+  outputJson         Json
+  speech             String
+  action             String?
+  innerThought       String?
+  emotion            String?
+  intent             String?
+  tokensInput        Int       @default(0)
+  tokensOutput       Int       @default(0)
+  estimatedCost      Float     @default(0)
+  latencyMs          Int       @default(0)
+  createdAt          DateTime  @default(now())
+  episode            Episode   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  speaker            Character @relation("SpeakerTurns", fields: [speakerCharacterId], references: [id], onDelete: Cascade)
+
+  @@index([episodeId, roundIndex])
+  @@index([speakerCharacterId])
+  @@index([createdAt])
+}
+
+model Memory {
+  id            String     @id @default(cuid())
+  characterId   String
+  episodeId     String?
+  type          String
+  content       String
+  visibility    String     @default("private")
+  importance    Float      @default(0.5)
+  embeddingJson Json?
+  createdAt     DateTime   @default(now())
+  character     Character  @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  episode       Episode?   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@index([characterId, visibility])
+  @@index([episodeId])
+  @@index([importance])
+}
+
+model SharedBoardItem {
+  id                       String     @id @default(cuid())
+  episodeId                String
+  type                     String
+  content                  String
+  source                   String?
+  introducedByCharacterId  String?
+  confidence               Float      @default(0.5)
+  visibility               String     @default("public")
+  tagsJson                 Json?
+  createdAt                DateTime   @default(now())
+  episode                  Episode    @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  introducedByCharacter    Character? @relation(fields: [introducedByCharacterId], references: [id], onDelete: SetNull)
+
+  @@index([episodeId, visibility])
+  @@index([introducedByCharacterId])
+}
+
+model LlmCall {
+  id             String    @id @default(cuid())
+  provider       String
+  model          String
+  characterId    String?
+  episodeId      String?
+  requestJson    Json?
+  responseJson   Json?
+  tokensInput    Int       @default(0)
+  tokensOutput   Int       @default(0)
+  estimatedCost  Float     @default(0)
+  latencyMs      Int       @default(0)
+  error          String?
+  createdAt      DateTime  @default(now())
+  episode        Episode?  @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([provider, model])
+  @@index([episodeId])
+  @@index([characterId])
+  @@index([createdAt])
+}
+
+model EpisodeCheckpoint {
+  id             String   @id @default(cuid())
+  episodeId      String
+  threadId       String
+  graphStateJson Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  episode        Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, threadId])
+  @@index([threadId])
+}
