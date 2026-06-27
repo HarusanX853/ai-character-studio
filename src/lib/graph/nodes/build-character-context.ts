@@ -1,5 +1,5 @@
 import { retrieveCharacterMemories } from "@/lib/memory/retrieve-character-memories";
-import { getCurrentStage, getReleasedEvidence, normalizeTrialRules } from "@/lib/jury/trial-state";
+import { getCurrentStage, getVisibleEvidence, normalizeTrialRules } from "@/lib/jury/trial-state";
 import { asRecord, asStringArray, stringifyJson } from "@/lib/utils/json";
 import type { CharacterSnapshot, EpisodeGraphState, MemorySnapshot } from "../state";
 
@@ -51,15 +51,18 @@ export async function buildCharacterContext(state: EpisodeGraphState): Promise<P
     trialRules.stages.length > 0 ||
     trialRules.evidence.length > 0;
   const currentStage = getCurrentStage(trialRules);
-  const releasedEvidence = getReleasedEvidence(trialRules);
+  const visibleEvidence = getVisibleEvidence(trialRules);
   const juryContext = juryModeEnabled
     ? {
         role: "juror",
         currentStage,
-        releasedEvidence,
-        releasedEvidenceIds: trialRules.releasedEvidenceIds,
+        evidenceCatalog: visibleEvidence,
+        evidenceIds: visibleEvidence.map((evidence) => evidence.id),
+        allEvidenceVisible: trialRules.allEvidenceVisible,
         voteOpen: trialRules.voteOpen,
         activeVoteStageId: trialRules.activeVoteStageId,
+        currentVoteRound: trialRules.currentVoteRound,
+        maxVoteRounds: trialRules.maxVoteRounds,
         voteOptions: trialRules.voteOptions
       }
     : null;
@@ -69,10 +72,16 @@ export async function buildCharacterContext(state: EpisodeGraphState): Promise<P
       ? "For jury_deliberation episodes, you are an AI juror. You are not the host, judge, prosecutor, defense attorney, witness, victim, or defendant."
       : "",
     juryModeEnabled
-      ? "Use only released evidence, public facts, shared board items, and recent discussion. Do not mention, quote, infer from, or act as if you know unreleased evidence."
+      ? "All configured evidence is visible from the beginning. Use only the evidence catalog, public facts, shared board items, and recent discussion."
       : "",
     juryModeEnabled
       ? "Do not invent new case facts. You may make value judgments and legal or moral arguments, but separate facts from interpretation."
+      : "",
+    juryModeEnabled
+      ? "When you cite evidence, name the evidence ID in speech and include that ID in cited_evidence_ids. Do not cite IDs outside the evidence catalog."
+      : "",
+    juryModeEnabled && trialRules.voteOpen
+      ? "A vote is open. You must cast exactly one vote using vote_choice, explain it in vote_rationale, and cite the evidence IDs that support your vote."
       : "",
     juryContext ? `Jury trial state: ${stringifyJson(juryContext)}` : "",
     "你正在扮演一个原创虚拟角色，而不是 AI 助手。",
@@ -120,12 +129,14 @@ export async function buildCharacterContext(state: EpisodeGraphState): Promise<P
     "1. 发言要推进剧情、冲突、推理、关系变化或游戏进展。",
     "2. 不要重复其他角色已经说过的话。",
     "3. 不要无意义寒暄。",
-    "4. 不要过长，speech 建议 1 到 4 句话。",
+    "4. 长短合适，speech 建议300字以内。",
     "5. claims 只填写你本轮提出的重要事实、假设、矛盾或线索。",
     "6. 只有你愿意公开给所有人的信息，才设置 should_publish_to_shared_board=true。",
     "7. memory_writes 写入你作为角色在本轮之后应该记住的事情。",
     "8. inner_thought 可以写你的内心想法，但不要在 speech 中直接说出来。",
-    "9. 输出必须是合法 JSON。"
+    "9. 如果引用证据，必须在 speech 中写出证据 ID，并在 cited_evidence_ids 中列出。",
+    "10. 如果当前正在投票，必须填写 vote_choice 和 vote_rationale。",
+    "11. 输出必须是合法 JSON。"
   ].join("\n");
 
   return {

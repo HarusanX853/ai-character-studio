@@ -1,22 +1,16 @@
 "use client";
 
-import { CheckCircle2, ChevronRight, Eye, ListChecks, Vote, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Vote, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import {
-  getCurrentStage,
-  getEvidenceForStage,
-  isEvidenceReleased,
-  type TrialEvidence,
-  type TrialRules
-} from "@/lib/jury/trial-state";
+import type { TrialRules, TrialVote } from "@/lib/jury/trial-state";
 
 type HostControlPanelProps = {
   episodeId: string;
   rules: TrialRules;
+  currentVotes: TrialVote[];
 };
 
 type DirectorActionResult = {
@@ -24,17 +18,45 @@ type DirectorActionResult = {
   error?: string;
 };
 
-export function HostControlPanel({ episodeId, rules }: HostControlPanelProps) {
+function VoteRows({ votes }: { votes: TrialVote[] }) {
+  if (!votes.length) {
+    return <p className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">No votes to display.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {votes.map((vote) => (
+        <div key={vote.characterId} className="rounded-md border bg-card p-3 text-sm">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="font-medium">{vote.characterName}</span>
+            <Badge>{vote.choice ?? "waiting"}</Badge>
+            {vote.turnId ? (
+              <Badge>
+                <CheckCircle2 className="h-3 w-3" />
+                submitted
+              </Badge>
+            ) : null}
+          </div>
+          {vote.rationale ? <p className="mb-2 text-muted-foreground">{vote.rationale}</p> : null}
+          {vote.citedEvidenceIds.length ? (
+            <div className="flex flex-wrap gap-1">
+              {vote.citedEvidenceIds.map((evidenceId) => (
+                <Badge key={evidenceId}>{evidenceId}</Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function HostControlPanel({ episodeId, rules, currentVotes }: HostControlPanelProps) {
   const router = useRouter();
-  const currentStage = getCurrentStage(rules);
-  const stageEvidence = getEvidenceForStage(rules, currentStage);
-  const [selectedStageId, setSelectedStageId] = useState(currentStage?.id ?? "");
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedStageId(currentStage?.id ?? "");
-  }, [currentStage?.id]);
+  const latestClosedRound = [...rules.voteRounds].reverse().find((round) => round.status === "closed") ?? null;
+  const canStartVote = !rules.voteOpen && rules.currentVoteRound < rules.maxVoteRounds;
 
   async function postDirectorAction(label: string, body: Record<string, unknown>) {
     setLoading(label);
@@ -54,121 +76,73 @@ export function HostControlPanel({ episodeId, rules }: HostControlPanelProps) {
     }
   }
 
-  function EvidenceRow({ evidence }: { evidence: TrialEvidence }) {
-    const released = isEvidenceReleased(rules, evidence.id);
-
-    return (
-      <div className="flex items-center justify-between gap-3 rounded-md border bg-card p-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge>{evidence.id}</Badge>
-            {released ? (
-              <Badge>
-                <CheckCircle2 className="h-3 w-3" />
-                released
-              </Badge>
-            ) : null}
-          </div>
-          <p className="mt-2 truncate text-sm font-medium">{evidence.title}</p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant={released ? "ghost" : "secondary"}
-          disabled={loading !== null || released}
-          onClick={() => void postDirectorAction(`Release ${evidence.id}`, { action: "release_evidence", evidenceId: evidence.id })}
-        >
-          <Eye className="h-4 w-4" />
-          Release
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-semibold">Host Control</h2>
-          <p className="text-xs text-muted-foreground">{currentStage ? currentStage.title : "No stage selected"}</p>
+          <p className="text-xs text-muted-foreground">Evidence is visible from the start. Run up to five vote rounds.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge>{rules.mode}</Badge>
+          <Badge>
+            Vote {rules.currentVoteRound}/{rules.maxVoteRounds}
+          </Badge>
           <Badge>{rules.voteOpen ? "vote open" : "vote closed"}</Badge>
         </div>
       </div>
 
-      {rules.stages.length ? (
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-          <Select value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
-            {rules.stages.map((stage) => (
-              <option key={stage.id} value={stage.id}>
-                {stage.order}. {stage.title}
-              </option>
-            ))}
-          </Select>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={loading !== null || !selectedStageId || selectedStageId === currentStage?.id}
-            onClick={() => void postDirectorAction("Set Stage", { action: "set_stage", stageId: selectedStageId })}
-          >
-            <ListChecks className="h-4 w-4" />
-            Set Stage
-          </Button>
-          <Button
-            type="button"
-            disabled={loading !== null}
-            onClick={() => void postDirectorAction("Advance Stage", { action: "advance_stage" })}
-          >
-            <ChevronRight className="h-4 w-4" />
-            Next Stage
-          </Button>
-        </div>
-      ) : (
-        <p className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">No trial stages configured in rulesJson.</p>
-      )}
-
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
-          variant="secondary"
-          disabled={loading !== null || !stageEvidence.length}
-          onClick={() => void postDirectorAction("Release Stage Evidence", { action: "release_stage_evidence" })}
+          disabled={loading !== null || !canStartVote}
+          onClick={() => void postDirectorAction("Start Vote Round", { action: "start_vote" })}
         >
-          <Eye className="h-4 w-4" />
-          Release Stage Evidence
+          {loading === "Start Vote Round" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Vote className="h-4 w-4" />}
+          {loading === "Start Vote Round" ? "Starting..." : "Start Vote Round"}
         </Button>
         <Button
           type="button"
           variant="secondary"
-          disabled={loading !== null || rules.voteOpen}
-          onClick={() => void postDirectorAction("Start Vote", { action: "start_vote" })}
-        >
-          <Vote className="h-4 w-4" />
-          Start Vote
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
           disabled={loading !== null || !rules.voteOpen}
-          onClick={() => void postDirectorAction("Close Vote", { action: "close_vote" })}
+          onClick={() => void postDirectorAction("Close Vote Round", { action: "close_vote" })}
         >
-          <XCircle className="h-4 w-4" />
-          Close Vote
+          {loading === "Close Vote Round" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+          {loading === "Close Vote Round" ? "Closing..." : "Close Vote Round"}
         </Button>
       </div>
 
-      {stageEvidence.length ? (
-        <div className="space-y-2">
-          {stageEvidence.map((evidence) => (
-            <EvidenceRow key={evidence.id} evidence={evidence} />
-          ))}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Vote className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{rules.voteOpen ? "Current Vote" : "Latest Vote Result"}</h3>
         </div>
-      ) : null}
+        <VoteRows votes={rules.voteOpen ? currentVotes : latestClosedRound?.votes ?? []} />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Evidence Catalog</h3>
+        </div>
+        {rules.evidence.length ? (
+          <div className="space-y-2">
+            {rules.evidence.map((evidence) => (
+              <article key={evidence.id} className="rounded-md border bg-card p-3 text-sm">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge>{evidence.id}</Badge>
+                  <span className="font-medium">{evidence.title}</span>
+                </div>
+                <p className="whitespace-pre-wrap text-muted-foreground">{evidence.content}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">No evidence configured.</p>
+        )}
+      </div>
 
       {message ? <pre className="max-h-32 overflow-auto rounded-md border bg-muted p-3 text-xs whitespace-pre-wrap">{message}</pre> : null}
     </div>
   );
 }
-

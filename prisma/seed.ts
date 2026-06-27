@@ -107,6 +107,55 @@ const publicFacts = [
   "死者生前与嫌疑人 A 有财务纠纷。"
 ];
 
+const evidence = [
+  {
+    id: "E1",
+    title: "走廊监控黑屏记录",
+    content: "别墅二楼走廊监控在 1:17 到 1:20 出现连续 180 秒黑屏，恢复后画面中没有看到嫌疑人 A。",
+    prosecutionView: "黑屏时间覆盖了作案窗口，可能是嫌疑人 A 避开监控的关键操作。",
+    defenseView: "暴雨夜电力不稳，黑屏不能直接证明有人操控。"
+  },
+  {
+    id: "E2",
+    title: "管家证词",
+    content: "管家称 1:10 左右听见死者书房方向传来争吵声，其中一个声音像嫌疑人 A。",
+    prosecutionView: "证词支持嫌疑人 A 在死亡窗口前后接近书房。",
+    defenseView: "管家承认隔着雨声和墙壁，无法确认声音身份。"
+  },
+  {
+    id: "E3",
+    title: "湿鞋印照片",
+    content: "书房门外发现一枚半残湿鞋印，尺码接近嫌疑人 A，但鞋底纹路只有局部可见。",
+    prosecutionView: "鞋印将嫌疑人 A 与书房门口联系起来。",
+    defenseView: "脚印残缺，且别墅内多人穿相近尺码皮鞋。"
+  },
+  {
+    id: "E4",
+    title: "死者未完成便签",
+    content: "死者桌上有一张被雨水浸湿的便签，只能辨认出“不是他，是那个最安静……”几个字。",
+    prosecutionView: "便签可能是死者临终前试图指出真凶。",
+    defenseView: "便签语义不完整，不能确定“他”指谁。"
+  },
+  {
+    id: "E5",
+    title: "财务纠纷邮件",
+    content: "死者案发前一周向嫌疑人 A 发送邮件，要求其在月底前偿还一笔高额债务。",
+    prosecutionView: "财务压力提供了明确动机。",
+    defenseView: "动机不等于作案，邮件语气更像商业催款。"
+  }
+];
+
+function formatEvidenceForBoard(item: (typeof evidence)[number]) {
+  return [
+    `Evidence ${item.id}: ${item.title}`,
+    item.content,
+    item.prosecutionView ? `Prosecution view: ${item.prosecutionView}` : null,
+    item.defenseView ? `Defense view: ${item.defenseView}` : null
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n\n");
+}
+
 async function main() {
   await prisma.episodeCheckpoint.deleteMany();
   await prisma.llmCall.deleteMany();
@@ -154,7 +203,18 @@ async function main() {
         }
       ]),
       rulesJson: json({
+        mode: "jury_trial",
         maxRounds: 12,
+        maxVoteRounds: 5,
+        currentVoteRound: 0,
+        allEvidenceVisible: true,
+        releasedEvidenceIds: evidence.map((item) => item.id),
+        voteOptions: ["guilty", "not_guilty", "undecided"],
+        voteOpen: false,
+        activeVoteStageId: null,
+        voteStartedTurnCount: null,
+        voteRounds: [],
+        evidence,
         turnOrder: "round_robin",
         allowPrivateThought: true,
         allowSecretReveal: true,
@@ -188,6 +248,21 @@ async function main() {
           source: "seed",
           confidence: 1,
           tagsJson: json(["seed"])
+        }
+      })
+    )
+  );
+
+  await Promise.all(
+    evidence.map((item) =>
+      prisma.sharedBoardItem.create({
+        data: {
+          episodeId: episode.id,
+          type: "clue",
+          content: formatEvidenceForBoard(item),
+          source: `episode_evidence:${item.id}`,
+          confidence: 1,
+          tagsJson: json(["episode_evidence", item.id])
         }
       })
     )

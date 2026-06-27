@@ -6,6 +6,7 @@ import { TranscriptView, type TranscriptTurn } from "./TranscriptView";
 import { Badge } from "@/components/ui/badge";
 import { Panel } from "@/components/ui/panel";
 import { normalizeTrialRules } from "@/lib/jury/trial-state";
+import { collectVotes } from "@/lib/jury/voting";
 
 type LiveRoomProps = {
   episode: {
@@ -23,10 +24,10 @@ type LiveRoomProps = {
       name: string;
       displayName: string | null;
       provider: string;
-      model: string;
-      roleArchetype: string | null;
-    };
-  }>;
+          model: string;
+          roleArchetype: string | null;
+        };
+      }>;
   availableCharacters: Array<{
     id: string;
     name: string;
@@ -52,6 +53,18 @@ export function LiveRoom({ episode, participants, availableCharacters, turns, sh
   const remainingBudget = Math.max(0, episode.budgetUsd - cost.spentUsd);
   const trialRules = normalizeTrialRules(episode.rulesJson);
   const nextParticipant = participants.length ? participants[turns.length % participants.length] : null;
+  const voteTurns = trialRules.voteOpen ? turns.slice(trialRules.voteStartedTurnCount ?? 0) : [];
+  const currentVotes = collectVotes(
+    participants.map((participant) => ({
+      characterId: participant.character.id,
+      characterName: participant.character.displayName ?? participant.character.name
+    })),
+    voteTurns.map((turn) => ({
+      id: turn.id,
+      speakerCharacterId: turn.speakerCharacterId,
+      outputJson: turn.outputJson
+    }))
+  );
 
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_1fr_360px]">
@@ -89,7 +102,7 @@ export function LiveRoom({ episode, participants, availableCharacters, turns, sh
       </div>
       <div className="space-y-4">
         <Panel>
-          <HostControlPanel episodeId={episode.id} rules={trialRules} />
+          <HostControlPanel episodeId={episode.id} rules={trialRules} currentVotes={currentVotes} />
         </Panel>
         <Panel>
           <EpisodeControls

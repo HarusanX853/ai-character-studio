@@ -30,7 +30,7 @@ export function SharedBoardView({ items }: { items: SharedBoardRow[] }) {
               </span>
             ) : null}
           </div>
-          <p className="text-sm">{item.content}</p>
+          <p className="whitespace-pre-wrap text-sm">{item.content}</p>
         </div>
       ))}
     </div>

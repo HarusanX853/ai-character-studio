@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { normalizeTrialRules } from "@/lib/jury/trial-state";
+import { syncEvidenceBoardItems } from "@/lib/shared-board/sync-evidence-board";
 import { syncPublicFactsBoardItems } from "@/lib/shared-board/sync-public-facts-board";
 import { asRecord, toInputJson } from "@/lib/utils/json";
 
@@ -16,17 +17,28 @@ function resetRulesForLive(rulesJson: unknown) {
   const base = asRecord(rulesJson);
   const rules = normalizeTrialRules(rulesJson);
   const firstStageId = rules.stages[0]?.id ?? null;
+  const evidence = rules.evidence.filter((item) => !/^VOTE-\d+$/i.test(item.id));
+  const evidenceIds = evidence.map((item) => item.id);
 
   return {
     ...base,
+    evidence,
     currentStageId: firstStageId,
     current_stage_id: firstStageId,
-    releasedEvidenceIds: [],
-    released_evidence_ids: [],
+    allEvidenceVisible: true,
+    all_evidence_visible: true,
+    releasedEvidenceIds: evidenceIds,
+    released_evidence_ids: evidenceIds,
     voteOpen: false,
     vote_open: false,
     activeVoteStageId: null,
-    active_vote_stage_id: null
+    active_vote_stage_id: null,
+    currentVoteRound: 0,
+    current_vote_round: 0,
+    voteStartedTurnCount: null,
+    vote_started_turn_count: null,
+    voteRounds: [],
+    vote_rounds: []
   };
 }
 
@@ -61,7 +73,7 @@ export async function restartLive(episodeId: string) {
     });
     const turns = await tx.turn.deleteMany({ where: { episodeId } });
 
-    await tx.episode.update({
+    const updatedEpisode = await tx.episode.update({
       where: { id: episodeId },
       data: {
         status: "active",
@@ -70,6 +82,7 @@ export async function restartLive(episodeId: string) {
     });
 
     await syncPublicFactsBoardItems(tx, episodeId, episode.publicFactsJson);
+    await syncEvidenceBoardItems(tx, episodeId, updatedEpisode.rulesJson);
 
     return {
       checkpoints: checkpoints.count,

@@ -19,7 +19,7 @@ export const characterTurnOutputSchema = z.object({
   emotion: z.string().optional(),
   intent: z.string().optional(),
   stance: z.enum(["guilty", "not_guilty", "undecided"]).optional(),
-  cited_evidence_ids: z.array(z.string()).optional(),
+  cited_evidence_ids: z.array(z.string()).default([]),
   vote_choice: z.string().optional(),
   vote_rationale: z.string().optional(),
   claims: z
@@ -52,6 +52,7 @@ export const fallbackCharacterTurnOutput: CharacterTurnOutput = {
   action: "沉默片刻。",
   emotion: "迟疑",
   intent: "pause",
+  cited_evidence_ids: [],
   claims: [],
   memory_writes: []
 };

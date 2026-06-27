@@ -87,11 +87,13 @@ export default async function EpisodeLivePage({ params }: PageProps) {
         turns={episode.turns.map((turn) => ({
           id: turn.id,
           roundIndex: turn.roundIndex,
+          speakerCharacterId: turn.speakerCharacterId,
           speech: turn.speech,
           action: turn.action,
           emotion: turn.emotion,
           intent: turn.intent,
           innerThought: turn.innerThought,
+          outputJson: turn.outputJson,
           tokensInput: turn.tokensInput,
           tokensOutput: turn.tokensOutput,
           estimatedCost: turn.estimatedCost,

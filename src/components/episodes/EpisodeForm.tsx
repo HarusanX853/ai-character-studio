@@ -49,7 +49,7 @@ function getDefaultValues(initialValues?: EpisodeFormProps["initialValues"]): Ep
     hiddenFactsJson: initialValues?.hiddenFactsJson ?? "[]",
     rulesJson:
       initialValues?.rulesJson ??
-      "{\n  \"turnOrder\": \"round_robin\",\n  \"allowPrivateThought\": true,\n  \"endCondition\": \"max_rounds_or_budget\"\n}",
+      "{\n  \"mode\": \"jury_trial\",\n  \"allEvidenceVisible\": true,\n  \"maxVoteRounds\": 5,\n  \"currentVoteRound\": 0,\n  \"voteOptions\": [\"guilty\", \"not_guilty\", \"undecided\"],\n  \"voteOpen\": false,\n  \"voteRounds\": [],\n  \"evidence\": [],\n  \"turnOrder\": \"round_robin\",\n  \"allowPrivateThought\": true,\n  \"endCondition\": \"max_rounds_or_budget\"\n}",
     budgetUsd: initialValues?.budgetUsd ?? 3,
     maxRounds: initialValues?.maxRounds ?? 12,
     status: initialValues?.status ?? "draft"

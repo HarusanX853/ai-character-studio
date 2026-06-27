@@ -17,15 +17,40 @@ export type TrialEvidence = {
   discussionPrompt?: string;
 };
 
+export type TrialVote = {
+  characterId: string;
+  characterName: string;
+  choice: string | null;
+  rationale: string | null;
+  citedEvidenceIds: string[];
+  turnId: string | null;
+};
+
+export type TrialVoteRound = {
+  round: number;
+  status: "open" | "closed";
+  openedAtTurnCount: number;
+  closedAtTurnCount: number | null;
+  votes: TrialVote[];
+  evidenceId: string | null;
+  createdAt: string | null;
+  closedAt: string | null;
+};
+
 export type TrialRules = Record<string, unknown> & {
   mode: string;
   currentStageId: string | null;
   releasedEvidenceIds: string[];
+  allEvidenceVisible: boolean;
   stages: TrialStage[];
   evidence: TrialEvidence[];
   voteOptions: string[];
   voteOpen: boolean;
   activeVoteStageId: string | null;
+  maxVoteRounds: number;
+  currentVoteRound: number;
+  voteStartedTurnCount: number | null;
+  voteRounds: TrialVoteRound[];
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -40,6 +65,11 @@ function readString(record: Record<string, unknown>, key: string) {
 function readNumber(record: Record<string, unknown>, key: string, fallback: number) {
   const value = record[key];
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readBoolean(record: Record<string, unknown>, key: string, fallback = false) {
@@ -89,29 +119,92 @@ function normalizeEvidence(value: unknown, index: number): TrialEvidence {
   };
 }
 
+function normalizeVote(value: unknown): TrialVote | null {
+  const record = asRecord(value);
+  const characterId = readString(record, "characterId") ?? readString(record, "character_id");
+  const characterName = readString(record, "characterName") ?? readString(record, "character_name");
+
+  if (!characterId || !characterName) {
+    return null;
+  }
+
+  return {
+    characterId,
+    characterName,
+    choice: readString(record, "choice") ?? null,
+    rationale: readString(record, "rationale") ?? null,
+    citedEvidenceIds: uniqueStrings(record.citedEvidenceIds ?? record.cited_evidence_ids),
+    turnId: readString(record, "turnId") ?? readString(record, "turn_id") ?? null
+  };
+}
+
+function normalizeVoteRound(value: unknown): TrialVoteRound | null {
+  const record = asRecord(value);
+  const round = readNumber(record, "round", 0);
+
+  if (round < 1) {
+    return null;
+  }
+
+  const rawStatus = readString(record, "status");
+  const status = rawStatus === "open" ? "open" : "closed";
+
+  return {
+    round,
+    status,
+    openedAtTurnCount:
+      readOptionalNumber(record, "openedAtTurnCount") ??
+      readOptionalNumber(record, "opened_at_turn_count") ??
+      0,
+    closedAtTurnCount:
+      readOptionalNumber(record, "closedAtTurnCount") ?? readOptionalNumber(record, "closed_at_turn_count"),
+    votes: (Array.isArray(record.votes) ? record.votes : []).map(normalizeVote).filter((vote): vote is TrialVote => vote !== null),
+    evidenceId: readString(record, "evidenceId") ?? readString(record, "evidence_id") ?? null,
+    createdAt: readString(record, "createdAt") ?? readString(record, "created_at") ?? null,
+    closedAt: readString(record, "closedAt") ?? readString(record, "closed_at") ?? null
+  };
+}
+
 export function normalizeTrialRules(value: unknown): TrialRules {
   const base = asRecord(value);
   const stages = (Array.isArray(base.stages) ? base.stages : [])
     .map(normalizeStage)
     .sort((left, right) => left.order - right.order);
   const evidence = (Array.isArray(base.evidence) ? base.evidence : []).map(normalizeEvidence);
-  const releasedEvidenceIds = uniqueStrings(base.releasedEvidenceIds ?? base.released_evidence_ids);
+  const allEvidenceVisible = readBoolean(base, "allEvidenceVisible", readBoolean(base, "all_evidence_visible", true));
+  const configuredReleasedEvidenceIds = uniqueStrings(base.releasedEvidenceIds ?? base.released_evidence_ids);
+  const releasedEvidenceIds = allEvidenceVisible ? evidence.map((item) => item.id) : configuredReleasedEvidenceIds;
   const configuredStageId = readString(base, "currentStageId") ?? readString(base, "current_stage_id") ?? null;
   const currentStageId =
     configuredStageId && stages.some((stage) => stage.id === configuredStageId)
       ? configuredStageId
       : stages[0]?.id ?? null;
+  const maxVoteRounds = Math.max(1, readNumber(base, "maxVoteRounds", readNumber(base, "max_vote_rounds", 5)));
+  const currentVoteRound = Math.min(
+    maxVoteRounds,
+    Math.max(0, readNumber(base, "currentVoteRound", readNumber(base, "current_vote_round", 0)))
+  );
+  const voteOptions = uniqueStrings(base.voteOptions ?? base.vote_options);
 
   return {
     ...base,
     mode: readString(base, "mode") ?? "jury_trial",
     currentStageId,
     releasedEvidenceIds,
+    allEvidenceVisible,
     stages,
     evidence,
-    voteOptions: uniqueStrings(base.voteOptions ?? base.vote_options),
+    voteOptions: voteOptions.length ? voteOptions : ["guilty", "not_guilty", "undecided"],
     voteOpen: readBoolean(base, "voteOpen", readBoolean(base, "vote_open", false)),
-    activeVoteStageId: readString(base, "activeVoteStageId") ?? readString(base, "active_vote_stage_id") ?? null
+    activeVoteStageId: readString(base, "activeVoteStageId") ?? readString(base, "active_vote_stage_id") ?? null,
+    maxVoteRounds,
+    currentVoteRound,
+    voteStartedTurnCount:
+      readOptionalNumber(base, "voteStartedTurnCount") ?? readOptionalNumber(base, "vote_started_turn_count"),
+    voteRounds: (Array.isArray(base.voteRounds) ? base.voteRounds : [])
+      .map(normalizeVoteRound)
+      .filter((round): round is TrialVoteRound => round !== null)
+      .sort((left, right) => left.round - right.round)
   };
 }
 
@@ -136,6 +229,10 @@ export function getReleasedEvidence(rules: TrialRules) {
   return rules.releasedEvidenceIds
     .map((evidenceId) => getEvidenceById(rules, evidenceId))
     .filter((item): item is TrialEvidence => item !== null);
+}
+
+export function getVisibleEvidence(rules: TrialRules) {
+  return rules.allEvidenceVisible ? rules.evidence : getReleasedEvidence(rules);
 }
 
 export function getEvidenceForStage(rules: TrialRules, stage: TrialStage | null) {

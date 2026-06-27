@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { episodeSchema } from "@/lib/schemas/episode";
+import { syncEvidenceBoardItems } from "@/lib/shared-board/sync-evidence-board";
 import { syncPublicFactsBoardItems } from "@/lib/shared-board/sync-public-facts-board";
 import { toInputJson } from "@/lib/utils/json";
 
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     });
 
     await syncPublicFactsBoardItems(tx, createdEpisode.id, input.publicFactsJson);
+    await syncEvidenceBoardItems(tx, createdEpisode.id, input.rulesJson);
     return createdEpisode;
   });
 
