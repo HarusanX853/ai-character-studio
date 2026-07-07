@@ -34,6 +34,17 @@ export default async function EpisodeLivePage({ params }: PageProps) {
           }
         }
       },
+      hostMessages: {
+        orderBy: { createdAt: "asc" }
+      },
+      independentOpinions: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          character: {
+            select: { name: true, displayName: true }
+          }
+        }
+      },
       memories: {
         orderBy: { createdAt: "desc" },
         take: 12,
@@ -60,6 +71,18 @@ export default async function EpisodeLivePage({ params }: PageProps) {
     where: { episodeId: episode.id },
     _sum: { estimatedCost: true, tokensInput: true, tokensOutput: true }
   });
+  const llmTotals = await prisma.llmCall.aggregate({
+    where: { episodeId: episode.id },
+    _sum: { estimatedCost: true, tokensInput: true, tokensOutput: true }
+  });
+  const latestOpinionByCharacterId = new Map(
+    episode.independentOpinions
+      .filter(
+        (opinion, index, opinions) =>
+          opinions.findIndex((candidate) => candidate.characterId === opinion.characterId) === index
+      )
+      .map((opinion) => [opinion.characterId, opinion])
+  );
 
   return (
     <PageShell className="max-w-none">
@@ -81,7 +104,8 @@ export default async function EpisodeLivePage({ params }: PageProps) {
             provider: entry.character.provider,
             model: entry.character.model,
             roleArchetype: entry.character.roleArchetype
-          }
+          },
+          latestOpinion: latestOpinionByCharacterId.get(entry.character.id) ?? null
         }))}
         availableCharacters={availableCharacters}
         turns={episode.turns.map((turn) => ({
@@ -107,15 +131,21 @@ export default async function EpisodeLivePage({ params }: PageProps) {
           source: item.source,
           introducedByCharacter: item.introducedByCharacter
         }))}
+        hostMessages={episode.hostMessages.map((message) => ({
+          id: message.id,
+          kind: message.kind,
+          content: message.content,
+          createdAt: message.createdAt.toISOString()
+        }))}
         memories={episode.memories.map((memory) => ({
           id: memory.id,
           content: memory.content,
           character: memory.character
         }))}
         cost={{
-          spentUsd: totals._sum.estimatedCost ?? 0,
-          tokensInput: totals._sum.tokensInput ?? 0,
-          tokensOutput: totals._sum.tokensOutput ?? 0
+          spentUsd: llmTotals._sum.estimatedCost ?? totals._sum.estimatedCost ?? 0,
+          tokensInput: llmTotals._sum.tokensInput ?? totals._sum.tokensInput ?? 0,
+          tokensOutput: llmTotals._sum.tokensOutput ?? totals._sum.tokensOutput ?? 0
         }}
       />
     </PageShell>

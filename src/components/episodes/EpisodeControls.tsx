@@ -1,10 +1,11 @@
 "use client";
 
-import { Download, FastForward, FileText, Gauge, Loader2, Play, RefreshCw, RotateCcw } from "lucide-react";
+import { Download, FileText, Gauge, Loader2, MessageSquareQuote, RefreshCw, RotateCcw, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 type ActionResult = {
   error?: string;
@@ -16,89 +17,31 @@ type PostActionOptions = {
   confirmMessage?: string;
 };
 
-type StreamEvent =
-  | {
-      type: "thinking";
-      speakerName: string;
-      provider: string;
-      model: string;
-      roundIndex: number;
-    }
-  | {
-      type: "status";
-      message: string;
-    }
-  | {
-      type: "chunk";
-      text: string;
-    }
-  | {
-      type: "complete";
-      summary: string;
-      turnId: string;
-    }
-  | {
-      type: "error";
-      message: string;
-      code: string;
-    };
-
-type StreamingTurn = {
-  speakerName: string;
-  provider: string;
-  model: string;
-  roundIndex: number;
-  status: string;
-  speech: string;
-  complete: boolean;
-  startedAt: number;
-  serverStatusReceived: boolean;
-};
-
-function ThinkingDots() {
-  return (
-    <span className="inline-flex items-center gap-1" aria-hidden="true">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary [animation-delay:120ms]" />
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary [animation-delay:240ms]" />
-    </span>
-  );
-}
-
-type NextSpeakerPreview = {
+type ParticipantOption = {
+  id: string;
   name: string;
   provider: string;
   model: string;
-  roundIndex: number;
-} | null;
+};
 
-export function EpisodeControls({ episodeId, nextSpeaker }: { episodeId: string; nextSpeaker: NextSpeakerPreview }) {
+export function EpisodeControls({
+  episodeId,
+  participants
+}: {
+  episodeId: string;
+  participants: ParticipantOption[];
+}) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
-  const [streamingTurn, setStreamingTurn] = useState<StreamingTurn | null>(null);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [selectedCharacterId, setSelectedCharacterId] = useState(participants[0]?.id ?? "");
 
   useEffect(() => {
-    if (loading !== "Run Next Turn" || !streamingTurn || streamingTurn.complete || streamingTurn.serverStatusReceived) {
-      return;
+    if (!selectedCharacterId && participants[0]) {
+      setSelectedCharacterId(participants[0].id);
     }
-
-    const interval = window.setInterval(() => {
-      setStreamingTurn((current) => {
-        if (!current || current.complete || current.serverStatusReceived) {
-          return current;
-        }
-
-        const elapsedSeconds = Math.max(1, Math.round((Date.now() - current.startedAt) / 1000));
-        return {
-          ...current,
-          status: `${current.speakerName} 正在连接生成流... ${elapsedSeconds}s`
-        };
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [loading, streamingTurn]);
+  }, [participants, selectedCharacterId]);
 
   async function postAction(path: string, label: string, body?: unknown, options?: PostActionOptions) {
     if (options?.confirmMessage && !window.confirm(options.confirmMessage)) {
@@ -106,7 +49,7 @@ export function EpisodeControls({ episodeId, nextSpeaker }: { episodeId: string;
     }
 
     setLoading(label);
-    setMessage(`${label} is running...`);
+    setMessage(`${label} 运行中...`);
 
     try {
       const response = await fetch(`/api/episodes/${episodeId}/${path}`, {
@@ -118,149 +61,38 @@ export function EpisodeControls({ episodeId, nextSpeaker }: { episodeId: string;
 
       if (!response.ok) {
         const suffix = result.code ? ` (${result.code})` : "";
-        setMessage(`${result.error ?? `${label} failed`}${suffix}`);
+        setMessage(`${result.error ?? `${label} 失败`}${suffix}`);
         return;
       }
 
-      setMessage(result.summary ?? `${label} complete`);
+      setMessage(result.summary ?? `${label} 完成`);
+      if (path === "group-discussion") {
+        setGroupOpen(false);
+      }
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : `${label} failed`);
+      setMessage(error instanceof Error ? error.message : `${label} 失败`);
     } finally {
       setLoading(null);
     }
   }
 
-  function handleStreamEvent(event: StreamEvent) {
-    if (event.type === "thinking") {
-      setStreamingTurn({
-        speakerName: event.speakerName,
-        provider: event.provider,
-        model: event.model,
-        roundIndex: event.roundIndex,
-        status: `${event.speakerName} 正在思考...`,
-        speech: "",
-        complete: false,
-        startedAt: Date.now(),
-        serverStatusReceived: true
-      });
-      return;
-    }
-
-    if (event.type === "status") {
-      setStreamingTurn((current) => (current ? { ...current, status: event.message, serverStatusReceived: true } : current));
-      return;
-    }
-
-    if (event.type === "chunk") {
-      setStreamingTurn((current) =>
-        current
-          ? {
-              ...current,
-              status: `${current.speakerName} 正在发言...`,
-              speech: `${current.speech}${event.text}`,
-              serverStatusReceived: true
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.type === "complete") {
-      setStreamingTurn((current) => (current ? { ...current, status: "本轮完成", complete: true } : current));
-      setMessage(event.summary);
-      router.refresh();
-      return;
-    }
-
-    setStreamingTurn((current) => (current ? { ...current, status: event.message, complete: true } : current));
-    setMessage(`${event.message} (${event.code})`);
-  }
-
-  async function runNextTurnStream() {
-    setLoading("Run Next Turn");
-    setMessage(null);
-    setStreamingTurn(
-      nextSpeaker
-        ? {
-            speakerName: nextSpeaker.name,
-            provider: nextSpeaker.provider,
-            model: nextSpeaker.model,
-            roundIndex: nextSpeaker.roundIndex,
-            status: `${nextSpeaker.name} 正在连接生成流...`,
-            speech: "",
-            complete: false,
-            startedAt: Date.now(),
-            serverStatusReceived: false
-          }
-        : {
-            speakerName: "Next speaker",
-            provider: "loading",
-            model: "loading",
-            roundIndex: 1,
-            status: "正在连接生成流...",
-            speech: "",
-            complete: false,
-            startedAt: Date.now(),
-            serverStatusReceived: false
-          }
-    );
-
-    try {
-      const response = await fetch(`/api/episodes/${episodeId}/run-next-turn-stream`, {
-        method: "POST",
-        headers: { "content-type": "application/json" }
-      });
-
-      if (!response.body) {
-        await postAction("run-next-turn", "Run Next Turn");
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) {
-            continue;
-          }
-
-          handleStreamEvent(JSON.parse(line) as StreamEvent);
-        }
-      }
-
-      buffer += decoder.decode();
-      if (buffer.trim()) {
-        handleStreamEvent(JSON.parse(buffer) as StreamEvent);
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Run Next Turn failed");
-    } finally {
-      setLoading(null);
-    }
-  }
+  const selectedParticipant = participants.find((participant) => participant.id === selectedCharacterId) ?? participants[0] ?? null;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={() => void runNextTurnStream()} disabled={loading !== null}>
-          {loading === "Run Next Turn" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          {loading === "Run Next Turn" ? "Running..." : "Run Next Turn"}
+        <Button
+          type="button"
+          onClick={() => void postAction("independent-opinions", "独立发表意见")}
+          disabled={loading !== null || !participants.length}
+        >
+          {loading === "独立发表意见" ? <Loader2 className="h-4 w-4 animate-spin" /> : <UsersRound className="h-4 w-4" />}
+          {loading === "独立发表意见" ? "生成中..." : "独立发表意见"}
         </Button>
-        <Button type="button" variant="secondary" onClick={() => postAction("run-round", "Run Full Round")} disabled={loading !== null}>
-          {loading === "Run Full Round" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FastForward className="h-4 w-4" />}
-          {loading === "Run Full Round" ? "Running round..." : "Run Full Round"}
+        <Button type="button" variant="secondary" onClick={() => setGroupOpen((value) => !value)} disabled={loading !== null || !participants.length}>
+          <MessageSquareQuote className="h-4 w-4" />
+          集体讨论
         </Button>
         <Button type="button" variant="secondary" onClick={() => postAction("summarize", "Summarize Episode")} disabled={loading !== null}>
           <FileText className="h-4 w-4" />
@@ -276,7 +108,7 @@ export function EpisodeControls({ episodeId, nextSpeaker }: { episodeId: string;
           onClick={() =>
             postAction("restart-live", "Restart Live", undefined, {
               confirmMessage:
-                "Restart live? This will clear the transcript, generated memories, runtime board items, checkpoints, and LLM cost records for this episode."
+                "Restart live? This will clear public discussion, host messages, independent opinions, generated memories, runtime board items, checkpoints, and LLM cost records for this episode."
             })
           }
           disabled={loading !== null}
@@ -295,20 +127,38 @@ export function EpisodeControls({ episodeId, nextSpeaker }: { episodeId: string;
           Refresh
         </Button>
       </div>
-      {streamingTurn ? (
-        <div className="rounded-md border bg-card p-3 text-sm">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge>Round {streamingTurn.roundIndex}</Badge>
-            <span className="font-medium">{streamingTurn.speakerName}</span>
-            <Badge>
-              {streamingTurn.provider}/{streamingTurn.model}
-            </Badge>
-            {!streamingTurn.complete ? <ThinkingDots /> : null}
+
+      {groupOpen ? (
+        <div className="rounded-md border bg-card p-3">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Badge>一次选择一个 AI</Badge>
+            {selectedParticipant ? (
+              <Badge>
+                {selectedParticipant.provider}/{selectedParticipant.model}
+              </Badge>
+            ) : null}
           </div>
-          <div className="mb-2 text-xs text-muted-foreground">{streamingTurn.status}</div>
-          {streamingTurn.speech ? <p className="whitespace-pre-wrap leading-6">{streamingTurn.speech}</p> : null}
+          <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+            <Select value={selectedCharacterId} onChange={(event) => setSelectedCharacterId(event.target.value)}>
+              {participants.map((participant) => (
+                <option key={participant.id} value={participant.id}>
+                  {participant.name}
+                </option>
+              ))}
+            </Select>
+            <Button
+              type="button"
+              disabled={loading !== null || !selectedCharacterId}
+              onClick={() => void postAction("group-discussion", "集体讨论", { characterId: selectedCharacterId })}
+            >
+              {loading === "集体讨论" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareQuote className="h-4 w-4" />}
+              {loading === "集体讨论" ? "发言中..." : "让该 AI 发言"}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">选中的 AI 会根据主持人最新任务公开发言，内容会进入公开讨论记录。</p>
         </div>
       ) : null}
+
       {message ? <pre className="max-h-52 overflow-auto rounded-md border bg-muted p-3 text-xs whitespace-pre-wrap">{message}</pre> : null}
     </div>
   );

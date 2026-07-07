@@ -59,6 +59,8 @@ export async function restartLive(episodeId: string) {
 
     const checkpoints = await tx.episodeCheckpoint.deleteMany({ where: { episodeId } });
     const llmCalls = await tx.llmCall.deleteMany({ where: { episodeId } });
+    const independentOpinions = await tx.independentOpinion.deleteMany({ where: { episodeId } });
+    const hostMessages = await tx.hostMessage.deleteMany({ where: { episodeId } });
     const runtimeBoardItems = await tx.sharedBoardItem.deleteMany({
       where: {
         episodeId,
@@ -89,7 +91,9 @@ export async function restartLive(episodeId: string) {
       llmCalls: llmCalls.count,
       sharedBoardItems: runtimeBoardItems.count,
       memories: runtimeMemories.count,
-      turns: turns.count
+      turns: turns.count,
+      hostMessages: hostMessages.count,
+      independentOpinions: independentOpinions.count
     };
   });
 }

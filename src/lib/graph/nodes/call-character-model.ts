@@ -19,7 +19,7 @@ export async function callCharacterModel(state: EpisodeGraphState): Promise<Part
     userPrompt: state.builtContext.userPrompt,
     responseSchema: characterTurnOutputSchema,
     temperature: 0.7,
-    maxTokens: 800,
+    maxTokens: 1600,
     metadata: {
       episodeId: state.episode.id,
       characterId: character.id,

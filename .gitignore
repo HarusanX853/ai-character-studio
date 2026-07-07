@@ -22,6 +22,7 @@ prisma/dev.db
 *.log
 *.tsbuildinfo
 .vercel
+tmp/
 
 # OS files
 .DS_Store

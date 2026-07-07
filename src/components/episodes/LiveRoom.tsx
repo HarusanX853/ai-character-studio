@@ -24,10 +24,21 @@ type LiveRoomProps = {
       name: string;
       displayName: string | null;
       provider: string;
-          model: string;
-          roleArchetype: string | null;
-        };
-      }>;
+      model: string;
+      roleArchetype: string | null;
+    };
+    latestOpinion: {
+      id: string;
+      roundIndex: number;
+      summary: string;
+      verdict: string;
+      guiltyProbability: number | null;
+      keyEvidence: string | null;
+      influentialArgument: string | null;
+      rationale: string | null;
+      createdAt: Date;
+    } | null;
+  }>;
   availableCharacters: Array<{
     id: string;
     name: string;
@@ -36,6 +47,12 @@ type LiveRoomProps = {
   }>;
   turns: TranscriptTurn[];
   sharedBoard: SharedBoardRow[];
+  hostMessages: Array<{
+    id: string;
+    kind: string;
+    content: string;
+    createdAt: string;
+  }>;
   memories: Array<{
     id: string;
     content: string;
@@ -48,11 +65,29 @@ type LiveRoomProps = {
   };
 };
 
-export function LiveRoom({ episode, participants, availableCharacters, turns, sharedBoard, memories, cost }: LiveRoomProps) {
+function verdictLabel(verdict: string) {
+  if (verdict === "guilty") {
+    return "倾向有罪";
+  }
+  if (verdict === "not_guilty") {
+    return "倾向无罪";
+  }
+  return "尚未确定";
+}
+
+export function LiveRoom({
+  episode,
+  participants,
+  availableCharacters,
+  turns,
+  sharedBoard,
+  hostMessages,
+  memories,
+  cost
+}: LiveRoomProps) {
   const currentRound = participants.length ? Math.floor(turns.length / participants.length) + 1 : 1;
   const remainingBudget = Math.max(0, episode.budgetUsd - cost.spentUsd);
   const trialRules = normalizeTrialRules(episode.rulesJson);
-  const nextParticipant = participants.length ? participants[turns.length % participants.length] : null;
   const voteTurns = trialRules.voteOpen ? turns.slice(trialRules.voteStartedTurnCount ?? 0) : [];
   const currentVotes = collectVotes(
     participants.map((participant) => ({
@@ -91,6 +126,26 @@ export function LiveRoom({ episode, participants, availableCharacters, turns, sh
                 <Badge className="mt-2">
                   {participant.character.provider}/{participant.character.model}
                 </Badge>
+                {participant.latestOpinion ? (
+                  <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge>主持人可见</Badge>
+                      <Badge>{verdictLabel(participant.latestOpinion.verdict)}</Badge>
+                      {participant.latestOpinion.guiltyProbability !== null ? (
+                        <span className="text-xs text-muted-foreground">
+                          有罪概率 {participant.latestOpinion.guiltyProbability.toFixed(0)}%
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="whitespace-pre-wrap leading-6">{participant.latestOpinion.summary}</p>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <p>最在意证据：{participant.latestOpinion.keyEvidence ?? "未说明"}</p>
+                      <p>影响最大论点：{participant.latestOpinion.influentialArgument ?? "未说明"}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">尚无独立意见。</p>
+                )}
               </div>
             ))}
           </div>
@@ -102,25 +157,21 @@ export function LiveRoom({ episode, participants, availableCharacters, turns, sh
       </div>
       <div className="space-y-4">
         <Panel>
-          <HostControlPanel episodeId={episode.id} rules={trialRules} currentVotes={currentVotes} />
+          <HostControlPanel episodeId={episode.id} rules={trialRules} currentVotes={currentVotes} hostMessages={hostMessages} />
         </Panel>
         <Panel>
           <EpisodeControls
             episodeId={episode.id}
-            nextSpeaker={
-              nextParticipant
-                ? {
-                    name: nextParticipant.character.displayName ?? nextParticipant.character.name,
-                    provider: nextParticipant.character.provider,
-                    model: nextParticipant.character.model,
-                    roundIndex: currentRound
-                  }
-                : null
-            }
+            participants={participants.map((participant) => ({
+              id: participant.character.id,
+              name: participant.character.displayName ?? participant.character.name,
+              provider: participant.character.provider,
+              model: participant.character.model
+            }))}
           />
         </Panel>
         <Panel className="space-y-3">
-          <h2 className="font-semibold">Transcript</h2>
+          <h2 className="font-semibold">公开讨论</h2>
           <TranscriptView turns={turns} />
         </Panel>
       </div>

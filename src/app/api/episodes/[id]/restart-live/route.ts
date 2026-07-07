@@ -12,7 +12,7 @@ export async function POST(_request: Request, context: RouteContext) {
     const result = await restartLive(id);
     return NextResponse.json({
       result,
-      summary: `Live restarted. Cleared ${result.turns} turn(s), ${result.memories} generated memory item(s), ${result.sharedBoardItems} runtime board item(s), and ${result.llmCalls} LLM call(s).`
+      summary: `Live restarted. Cleared ${result.turns} public turn(s), ${result.hostMessages} host message(s), ${result.independentOpinions} independent opinion(s), ${result.memories} generated memory item(s), ${result.sharedBoardItems} runtime board item(s), and ${result.llmCalls} LLM call(s).`
     });
   } catch (error) {
     if (error instanceof RestartLiveError) {

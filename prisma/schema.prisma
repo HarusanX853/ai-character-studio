@@ -8,49 +8,52 @@ datasource db {
 }
 
 model Character {
-  id              String             @id @default(cuid())
-  name            String             @unique
-  displayName     String?
-  avatarUrl       String?
-  provider        String
-  model           String
-  roleArchetype   String?
-  personalityJson Json
-  backstory       String
-  publicGoal      String?
-  privateGoal     String?
-  secretsJson     Json?
-  speechStyle     String?
-  costPolicyJson  Json?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  episodes        EpisodeCharacter[]
-  turns           Turn[]             @relation("SpeakerTurns")
-  memories        Memory[]
-  sharedItems     SharedBoardItem[]
+  id                  String               @id @default(cuid())
+  name                String               @unique
+  displayName         String?
+  avatarUrl           String?
+  provider            String
+  model               String
+  roleArchetype       String?
+  personalityJson     Json
+  backstory           String
+  publicGoal          String?
+  privateGoal         String?
+  secretsJson         Json?
+  speechStyle         String?
+  costPolicyJson      Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  episodes            EpisodeCharacter[]
+  turns               Turn[]               @relation("SpeakerTurns")
+  memories            Memory[]
+  sharedItems         SharedBoardItem[]
+  independentOpinions IndependentOpinion[]
 
   @@index([provider, model])
 }
 
 model Episode {
-  id              String             @id @default(cuid())
-  title           String             @unique
-  format          String
-  setting         String
-  publicFactsJson Json?
-  hiddenFactsJson Json?
-  rulesJson       Json?
-  budgetUsd       Float              @default(3)
-  maxRounds       Int                @default(12)
-  status          String             @default("draft")
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  characters      EpisodeCharacter[]
-  turns           Turn[]
-  memories        Memory[]
-  sharedBoard     SharedBoardItem[]
-  checkpoints     EpisodeCheckpoint[]
-  llmCalls        LlmCall[]
+  id                  String               @id @default(cuid())
+  title               String               @unique
+  format              String
+  setting             String
+  publicFactsJson     Json?
+  hiddenFactsJson     Json?
+  rulesJson           Json?
+  budgetUsd           Float                @default(3)
+  maxRounds           Int                  @default(12)
+  status              String               @default("draft")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  characters          EpisodeCharacter[]
+  turns               Turn[]
+  memories            Memory[]
+  sharedBoard         SharedBoardItem[]
+  hostMessages        HostMessage[]
+  independentOpinions IndependentOpinion[]
+  checkpoints         EpisodeCheckpoint[]
+  llmCalls            LlmCall[]
 
   @@index([status])
   @@index([format])
@@ -96,17 +99,17 @@ model Turn {
 }
 
 model Memory {
-  id            String     @id @default(cuid())
+  id            String    @id @default(cuid())
   characterId   String
   episodeId     String?
   type          String
   content       String
-  visibility    String     @default("private")
-  importance    Float      @default(0.5)
+  visibility    String    @default("private")
+  importance    Float     @default(0.5)
   embeddingJson Json?
-  createdAt     DateTime   @default(now())
-  character     Character  @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  episode       Episode?   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  episode       Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 
   @@index([characterId, visibility])
   @@index([episodeId])
@@ -114,38 +117,79 @@ model Memory {
 }
 
 model SharedBoardItem {
-  id                       String     @id @default(cuid())
-  episodeId                String
-  type                     String
-  content                  String
-  source                   String?
-  introducedByCharacterId  String?
-  confidence               Float      @default(0.5)
-  visibility               String     @default("public")
-  tagsJson                 Json?
-  createdAt                DateTime   @default(now())
-  episode                  Episode    @relation(fields: [episodeId], references: [id], onDelete: Cascade)
-  introducedByCharacter    Character? @relation(fields: [introducedByCharacterId], references: [id], onDelete: SetNull)
+  id                      String     @id @default(cuid())
+  episodeId               String
+  type                    String
+  content                 String
+  source                  String?
+  introducedByCharacterId String?
+  confidence              Float      @default(0.5)
+  visibility              String     @default("public")
+  tagsJson                Json?
+  createdAt               DateTime   @default(now())
+  episode                 Episode    @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  introducedByCharacter   Character? @relation(fields: [introducedByCharacterId], references: [id], onDelete: SetNull)
 
   @@index([episodeId, visibility])
   @@index([introducedByCharacterId])
 }
 
+model HostMessage {
+  id        String               @id @default(cuid())
+  episodeId String
+  kind      String               @default("message")
+  content   String
+  createdAt DateTime             @default(now())
+  episode   Episode              @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  opinions  IndependentOpinion[]
+
+  @@index([episodeId, createdAt])
+  @@index([kind])
+}
+
+model IndependentOpinion {
+  id                  String       @id @default(cuid())
+  episodeId           String
+  characterId         String
+  hostMessageId       String?
+  roundIndex          Int          @default(1)
+  outputJson          Json
+  summary             String
+  verdict             String
+  guiltyProbability   Float?
+  keyEvidence         String?
+  influentialArgument String?
+  rationale           String?
+  tokensInput         Int          @default(0)
+  tokensOutput        Int          @default(0)
+  estimatedCost       Float        @default(0)
+  latencyMs           Int          @default(0)
+  createdAt           DateTime     @default(now())
+  episode             Episode      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  character           Character    @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  hostMessage         HostMessage? @relation(fields: [hostMessageId], references: [id], onDelete: SetNull)
+
+  @@index([episodeId, createdAt])
+  @@index([characterId, createdAt])
+  @@index([hostMessageId])
+  @@index([verdict])
+}
+
 model LlmCall {
-  id             String    @id @default(cuid())
-  provider       String
-  model          String
-  characterId    String?
-  episodeId      String?
-  requestJson    Json?
-  responseJson   Json?
-  tokensInput    Int       @default(0)
-  tokensOutput   Int       @default(0)
-  estimatedCost  Float     @default(0)
-  latencyMs      Int       @default(0)
-  error          String?
-  createdAt      DateTime  @default(now())
-  episode        Episode?  @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  id            String   @id @default(cuid())
+  provider      String
+  model         String
+  characterId   String?
+  episodeId     String?
+  requestJson   Json?
+  responseJson  Json?
+  tokensInput   Int      @default(0)
+  tokensOutput  Int      @default(0)
+  estimatedCost Float    @default(0)
+  latencyMs     Int      @default(0)
+  error         String?
+  createdAt     DateTime @default(now())
+  episode       Episode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
 
   @@index([provider, model])
   @@index([episodeId])

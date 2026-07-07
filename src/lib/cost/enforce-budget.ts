@@ -6,7 +6,7 @@ export function readBudgetOverride(rulesJson: unknown) {
 }
 
 export async function getEpisodeSpentUsd(episodeId: string) {
-  const aggregate = await prisma.turn.aggregate({
+  const aggregate = await prisma.llmCall.aggregate({
     where: { episodeId },
     _sum: { estimatedCost: true }
   });
