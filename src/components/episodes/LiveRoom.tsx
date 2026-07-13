@@ -17,6 +17,7 @@ type LiveRoomProps = {
     budgetUsd: number;
     maxRounds: number;
     rulesJson: unknown;
+    caseFactsAvailable: boolean;
   };
   participants: Array<{
     character: {
@@ -157,7 +158,13 @@ export function LiveRoom({
       </div>
       <div className="space-y-4">
         <Panel>
-          <HostControlPanel episodeId={episode.id} rules={trialRules} currentVotes={currentVotes} hostMessages={hostMessages} />
+          <HostControlPanel
+            episodeId={episode.id}
+            rules={trialRules}
+            caseFactsAvailable={episode.caseFactsAvailable}
+            currentVotes={currentVotes}
+            hostMessages={hostMessages}
+          />
         </Panel>
         <Panel>
           <EpisodeControls

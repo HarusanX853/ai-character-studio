@@ -16,7 +16,7 @@ export async function POST(_request: Request, context: RouteContext) {
     });
   } catch (error) {
     if (error instanceof JuryControlError) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
 
     console.error(error);

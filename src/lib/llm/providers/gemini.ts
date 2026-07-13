@@ -1,13 +1,16 @@
 import { estimateCost, estimateTokenCount } from "@/lib/cost/estimate-cost";
-import { mockProvider } from "./mock";
+import { getTotalOutputTokens } from "@/lib/llm/output-limits";
+import { requireApiKey, requireMessageContent, throwProviderResponseError } from "../errors";
 import type { GenerateCharacterTurnInput, GenerateCharacterTurnResult, LLMProviderAdapter } from "../types";
 
 export const geminiProvider: LLMProviderAdapter = {
   async generateCharacterTurn(input: GenerateCharacterTurnInput): Promise<GenerateCharacterTurnResult> {
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return mockProvider.generateCharacterTurn(input);
-    }
+    const apiKey = requireApiKey(
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
+      "Gemini",
+      input.model,
+      "GOOGLE_GENERATIVE_AI_API_KEY 或 GEMINI_API_KEY"
+    );
 
     const startedAt = Date.now();
     const response = await fetch(
@@ -24,7 +27,7 @@ export const geminiProvider: LLMProviderAdapter = {
           ],
           generationConfig: {
             temperature: input.temperature ?? 0.7,
-            maxOutputTokens: input.maxTokens ?? 800,
+            maxOutputTokens: getTotalOutputTokens(input),
             responseMimeType: "application/json"
           }
         })
@@ -32,14 +35,18 @@ export const geminiProvider: LLMProviderAdapter = {
     );
 
     if (!response.ok) {
-      throw new Error(`Gemini request failed with status ${response.status}`);
+      await throwProviderResponseError(response, "Gemini", input.model);
     }
 
     const providerResponse = (await response.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     };
-    const rawText = providerResponse.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    const rawText = requireMessageContent(
+      providerResponse.candidates?.[0]?.content?.parts?.[0]?.text,
+      "Gemini",
+      input.model
+    );
     const tokensInput =
       providerResponse.usageMetadata?.promptTokenCount ?? estimateTokenCount(`${input.systemPrompt}\n${input.userPrompt}`);
     const tokensOutput = providerResponse.usageMetadata?.candidatesTokenCount ?? estimateTokenCount(rawText);

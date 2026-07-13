@@ -19,6 +19,7 @@ import {
 type HostControlPanelProps = {
   episodeId: string;
   rules: TrialRules;
+  caseFactsAvailable: boolean;
   currentVotes: TrialVote[];
   hostMessages: Array<{
     id: string;
@@ -77,7 +78,7 @@ function VoteRows({ votes }: { votes: TrialVote[] }) {
   );
 }
 
-export function HostControlPanel({ episodeId, rules, currentVotes, hostMessages }: HostControlPanelProps) {
+export function HostControlPanel({ episodeId, rules, caseFactsAvailable, currentVotes, hostMessages }: HostControlPanelProps) {
   const router = useRouter();
   const currentStage = getCurrentStage(rules);
   const stageEvidence = getEvidenceForStage(rules, currentStage);
@@ -228,6 +229,15 @@ export function HostControlPanel({ episodeId, rules, currentVotes, hostMessages 
       )}
 
       <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={loading !== null || !caseFactsAvailable || rules.caseFactsReleased}
+          onClick={() => void postDirectorAction("Release Case Facts", { action: "release_public_facts" })}
+        >
+          {loading === "Release Case Facts" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+          {rules.caseFactsReleased ? "Case Facts Released" : "Release Case Facts"}
+        </Button>
         <Button
           type="button"
           variant="secondary"

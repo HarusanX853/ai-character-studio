@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { episodeSchema } from "@/lib/schemas/episode";
 import { syncEvidenceBoardItems } from "@/lib/shared-board/sync-evidence-board";
 import { syncPublicFactsBoardItems } from "@/lib/shared-board/sync-public-facts-board";
+import { normalizeTrialRules } from "@/lib/jury/trial-state";
 import { toInputJson } from "@/lib/utils/json";
 
 type RouteContext = {
@@ -49,7 +50,17 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     });
 
-    await syncPublicFactsBoardItems(tx, updatedEpisode.id, updatedEpisode.publicFactsJson);
+    if (normalizeTrialRules(updatedEpisode.rulesJson).caseFactsReleased) {
+      await syncPublicFactsBoardItems(tx, updatedEpisode.id, updatedEpisode.publicFactsJson);
+    } else {
+      await tx.sharedBoardItem.deleteMany({
+        where: {
+          episodeId: updatedEpisode.id,
+          type: "public_fact",
+          source: { in: ["seed", "episode_public_facts"] }
+        }
+      });
+    }
     await syncEvidenceBoardItems(tx, updatedEpisode.id, updatedEpisode.rulesJson);
     return updatedEpisode;
   });

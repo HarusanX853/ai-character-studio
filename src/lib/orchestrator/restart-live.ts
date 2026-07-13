@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
 import { normalizeTrialRules } from "@/lib/jury/trial-state";
-import { syncEvidenceBoardItems } from "@/lib/shared-board/sync-evidence-board";
-import { syncPublicFactsBoardItems } from "@/lib/shared-board/sync-public-facts-board";
 import { asRecord, toInputJson } from "@/lib/utils/json";
 
 export class RestartLiveError extends Error {
@@ -18,17 +16,18 @@ function resetRulesForLive(rulesJson: unknown) {
   const rules = normalizeTrialRules(rulesJson);
   const firstStageId = rules.stages[0]?.id ?? null;
   const evidence = rules.evidence.filter((item) => !/^VOTE-\d+$/i.test(item.id));
-  const evidenceIds = evidence.map((item) => item.id);
 
   return {
     ...base,
     evidence,
     currentStageId: firstStageId,
     current_stage_id: firstStageId,
-    allEvidenceVisible: true,
-    all_evidence_visible: true,
-    releasedEvidenceIds: evidenceIds,
-    released_evidence_ids: evidenceIds,
+    caseFactsReleased: false,
+    case_facts_released: false,
+    allEvidenceVisible: false,
+    all_evidence_visible: false,
+    releasedEvidenceIds: [],
+    released_evidence_ids: [],
     voteOpen: false,
     vote_open: false,
     activeVoteStageId: null,
@@ -48,7 +47,6 @@ export async function restartLive(episodeId: string) {
       where: { id: episodeId },
       select: {
         id: true,
-        publicFactsJson: true,
         rulesJson: true
       }
     });
@@ -62,10 +60,7 @@ export async function restartLive(episodeId: string) {
     const independentOpinions = await tx.independentOpinion.deleteMany({ where: { episodeId } });
     const hostMessages = await tx.hostMessage.deleteMany({ where: { episodeId } });
     const runtimeBoardItems = await tx.sharedBoardItem.deleteMany({
-      where: {
-        episodeId,
-        NOT: { type: "public_fact" }
-      }
+      where: { episodeId }
     });
     const runtimeMemories = await tx.memory.deleteMany({
       where: {
@@ -75,16 +70,13 @@ export async function restartLive(episodeId: string) {
     });
     const turns = await tx.turn.deleteMany({ where: { episodeId } });
 
-    const updatedEpisode = await tx.episode.update({
+    await tx.episode.update({
       where: { id: episodeId },
       data: {
         status: "active",
         rulesJson: toInputJson(resetRulesForLive(episode.rulesJson))
       }
     });
-
-    await syncPublicFactsBoardItems(tx, episodeId, episode.publicFactsJson);
-    await syncEvidenceBoardItems(tx, episodeId, updatedEpisode.rulesJson);
 
     return {
       checkpoints: checkpoints.count,

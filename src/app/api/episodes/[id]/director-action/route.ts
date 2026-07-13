@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import {
+  getCurrentStage,
+  getEvidenceForStage,
   normalizeTrialRules,
+  getNextStage,
   type TrialRules,
   type TrialVoteRound
 } from "@/lib/jury/trial-state";
 import { collectVotes, formatVoteEvidenceContent } from "@/lib/jury/voting";
+import { syncEvidenceBoardItems } from "@/lib/shared-board/sync-evidence-board";
+import { extractPublicFacts, syncPublicFactsBoardItems } from "@/lib/shared-board/sync-public-facts-board";
 import { asRecord, toInputJson } from "@/lib/utils/json";
 
 type RouteContext = {
@@ -38,15 +43,23 @@ function makeVoteEvidenceId(round: number) {
   return `VOTE-${round}`;
 }
 
-function withAllEvidenceVisible(rules: TrialRules) {
-  const evidenceIds = rules.evidence.map((evidence) => evidence.id);
+function withReleasedEvidence(rules: TrialRules, evidenceIds: string[]) {
+  const releasedEvidenceIds = [
+    ...new Set([...rules.releasedEvidenceIds, ...evidenceIds].filter((id) => rules.evidence.some((evidence) => evidence.id === id)))
+  ];
+
   return {
     ...rules,
-    allEvidenceVisible: true,
-    all_evidence_visible: true,
-    releasedEvidenceIds: evidenceIds,
-    released_evidence_ids: evidenceIds
+    allEvidenceVisible: false,
+    all_evidence_visible: false,
+    releasedEvidenceIds,
+    released_evidence_ids: releasedEvidenceIds
   };
+}
+
+function readString(body: unknown, key: string) {
+  const value = asRecord(body)[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function upsertVoteRound(rules: TrialRules, voteRound: TrialVoteRound) {
@@ -66,12 +79,79 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const rules = normalizeTrialRules(episode.rulesJson);
-  let nextRules: TrialRules | Record<string, unknown> = withAllEvidenceVisible(rules);
+  let nextRules: TrialRules | Record<string, unknown> = rules;
   let message = "Director action complete.";
   const ruleBoardMessages: string[] = [];
+  let syncPublicFacts = false;
+  let syncEvidence = false;
 
-  if (action === "release_evidence" || action === "release_stage_evidence") {
-    message = "All evidence is visible from the beginning. No release action is needed.";
+  if (action === "release_public_facts") {
+    const facts = extractPublicFacts(episode.publicFactsJson);
+    if (!facts.length) {
+      return NextResponse.json({ error: "No case facts are configured." }, { status: 400 });
+    }
+
+    nextRules = {
+      ...rules,
+      caseFactsReleased: true,
+      case_facts_released: true
+    };
+    syncPublicFacts = true;
+    message = `Published ${facts.length} case fact${facts.length === 1 ? "" : "s"}.`;
+  } else if (action === "release_evidence") {
+    const evidenceId = readString(body, "evidenceId");
+    const evidence = rules.evidence.find((item) => item.id === evidenceId);
+    if (!evidence) {
+      return NextResponse.json({ error: "Evidence was not found." }, { status: 400 });
+    }
+
+    if (rules.releasedEvidenceIds.includes(evidence.id)) {
+      return NextResponse.json({ error: `${evidence.id} has already been released.` }, { status: 400 });
+    }
+
+    nextRules = withReleasedEvidence(rules, [evidence.id]);
+    syncEvidence = true;
+    message = `Published ${evidence.id}: ${evidence.title}.`;
+  } else if (action === "release_stage_evidence") {
+    const stage = getCurrentStage(rules);
+    const stageEvidence = getEvidenceForStage(rules, stage);
+    if (!stage || !stageEvidence.length) {
+      return NextResponse.json({ error: "The current stage has no evidence to release." }, { status: 400 });
+    }
+
+    const unreleasedEvidence = stageEvidence.filter((evidence) => !rules.releasedEvidenceIds.includes(evidence.id));
+    if (!unreleasedEvidence.length) {
+      return NextResponse.json({ error: "All evidence for this stage has already been released." }, { status: 400 });
+    }
+
+    nextRules = withReleasedEvidence(rules, unreleasedEvidence.map((evidence) => evidence.id));
+    syncEvidence = true;
+    message = `Published ${unreleasedEvidence.map((evidence) => evidence.id).join(", ")}.`;
+  } else if (action === "set_stage") {
+    const stageId = readString(body, "stageId");
+    const stage = rules.stages.find((item) => item.id === stageId);
+    if (!stage) {
+      return NextResponse.json({ error: "Stage was not found." }, { status: 400 });
+    }
+
+    nextRules = {
+      ...rules,
+      currentStageId: stage.id,
+      current_stage_id: stage.id
+    };
+    message = `Current stage set to ${stage.order}. ${stage.title}.`;
+  } else if (action === "advance_stage") {
+    const stage = getNextStage(rules);
+    if (!stage) {
+      return NextResponse.json({ error: "The current stage is already the final stage." }, { status: 400 });
+    }
+
+    nextRules = {
+      ...rules,
+      currentStageId: stage.id,
+      current_stage_id: stage.id
+    };
+    message = `Advanced to ${stage.order}. ${stage.title}.`;
   } else if (action === "start_vote") {
     if (rules.voteOpen) {
       return NextResponse.json({ error: "A vote round is already open." }, { status: 400 });
@@ -96,7 +176,7 @@ export async function POST(request: Request, context: RouteContext) {
     };
 
     nextRules = {
-      ...withAllEvidenceVisible(rules),
+      ...rules,
       voteOpen: true,
       vote_open: true,
       activeVoteStageId: makeVoteRoundId(round),
@@ -161,22 +241,21 @@ export async function POST(request: Request, context: RouteContext) {
         discussionPrompt: "这是一轮陪审投票的公开结果，可作为后续讨论的证据引用。"
       }
     ];
-    const evidenceIds = evidence.map((item) => item.id);
-
-    nextRules = {
-      ...withAllEvidenceVisible(rules),
-      evidence,
-      releasedEvidenceIds: evidenceIds,
-      released_evidence_ids: evidenceIds,
-      voteOpen: false,
-      vote_open: false,
-      activeVoteStageId: null,
-      active_vote_stage_id: null,
-      voteStartedTurnCount: null,
-      vote_started_turn_count: null,
-      voteRounds: upsertVoteRound(rules, voteRound),
-      vote_rounds: upsertVoteRound(rules, voteRound)
-    };
+    nextRules = withReleasedEvidence(
+      {
+        ...rules,
+        evidence,
+        voteOpen: false,
+        vote_open: false,
+        activeVoteStageId: null,
+        active_vote_stage_id: null,
+        voteStartedTurnCount: null,
+        vote_started_turn_count: null,
+        voteRounds: upsertVoteRound(rules, voteRound),
+        vote_rounds: upsertVoteRound(rules, voteRound)
+      },
+      [voteEvidenceId]
+    );
     message = `Vote round ${rules.currentVoteRound}/${rules.maxVoteRounds} closed.`;
     ruleBoardMessages.push(message);
     await prisma.sharedBoardItem.create({
@@ -199,6 +278,17 @@ export async function POST(request: Request, context: RouteContext) {
       rulesJson: toInputJson(nextRules)
     }
   });
+
+  if (syncPublicFacts || syncEvidence) {
+    await prisma.$transaction(async (tx) => {
+      if (syncPublicFacts) {
+        await syncPublicFactsBoardItems(tx, id, episode.publicFactsJson);
+      }
+      if (syncEvidence) {
+        await syncEvidenceBoardItems(tx, id, nextRules);
+      }
+    });
+  }
 
   await Promise.all(ruleBoardMessages.map((content) => createRuleBoardItem(id, content, [action])));
 

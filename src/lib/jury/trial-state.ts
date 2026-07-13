@@ -40,6 +40,7 @@ export type TrialVoteRound = {
 export type TrialRules = Record<string, unknown> & {
   mode: string;
   currentStageId: string | null;
+  caseFactsReleased: boolean;
   releasedEvidenceIds: string[];
   allEvidenceVisible: boolean;
   stages: TrialStage[];
@@ -171,9 +172,10 @@ export function normalizeTrialRules(value: unknown): TrialRules {
     .map(normalizeStage)
     .sort((left, right) => left.order - right.order);
   const evidence = (Array.isArray(base.evidence) ? base.evidence : []).map(normalizeEvidence);
-  const allEvidenceVisible = readBoolean(base, "allEvidenceVisible", readBoolean(base, "all_evidence_visible", true));
+  const allEvidenceVisible = readBoolean(base, "allEvidenceVisible", readBoolean(base, "all_evidence_visible", false));
   const configuredReleasedEvidenceIds = uniqueStrings(base.releasedEvidenceIds ?? base.released_evidence_ids);
   const releasedEvidenceIds = allEvidenceVisible ? evidence.map((item) => item.id) : configuredReleasedEvidenceIds;
+  const caseFactsReleased = readBoolean(base, "caseFactsReleased", readBoolean(base, "case_facts_released", false));
   const configuredStageId = readString(base, "currentStageId") ?? readString(base, "current_stage_id") ?? null;
   const currentStageId =
     configuredStageId && stages.some((stage) => stage.id === configuredStageId)
@@ -190,6 +192,7 @@ export function normalizeTrialRules(value: unknown): TrialRules {
     ...base,
     mode: readString(base, "mode") ?? "jury_trial",
     currentStageId,
+    caseFactsReleased,
     releasedEvidenceIds,
     allEvidenceVisible,
     stages,

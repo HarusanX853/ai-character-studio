@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { getLlmErrorCode, getLlmFailureDetails } from "@/lib/llm/errors";
+import { getGenerationBudget } from "@/lib/llm/output-limits";
 import { generateCharacterTurn } from "@/lib/llm/router";
-import { characterTurnOutputSchema, fallbackCharacterTurnOutput } from "@/lib/schemas/character-output";
+import { characterTurnOutputSchema } from "@/lib/schemas/character-output";
 import { toInputJson, stringifyJson } from "@/lib/utils/json";
 import { safeJsonParse, extractFirstJsonObject } from "@/lib/utils/safe-parse";
 
@@ -25,33 +27,94 @@ export async function POST(_request: Request, context: RouteContext) {
     `说话风格: ${character.speechStyle ?? "自然"}`
   ].join("\n");
   const userPrompt = "请用一小段发言展示你的角色状态，并写入一条本轮应该记住的私有记忆。";
-  const result = await generateCharacterTurn({
+  const input = {
     provider: character.provider,
     model: character.model,
     systemPrompt,
     userPrompt,
-    maxTokens: 500,
+    generationBudget: getGenerationBudget("character_test"),
     metadata: {
       characterId: character.id,
       characterName: character.name,
       episodeSetting: "单角色测试"
     }
-  });
+  };
+
+  let result;
+  try {
+    result = await generateCharacterTurn(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "模型调用失败。";
+    const failure = getLlmFailureDetails(error);
+    await prisma.llmCall.create({
+      data: {
+        provider: character.provider,
+        model: character.model,
+        characterId: character.id,
+        requestJson: toInputJson({ systemPrompt, userPrompt, generationBudget: input.generationBudget }),
+        responseJson: toInputJson({ failed: true, providerResponse: failure?.providerResponse ?? null }),
+        tokensInput: failure?.tokensInput ?? 0,
+        tokensOutput: failure?.tokensOutput ?? 0,
+        estimatedCost: failure?.estimatedCost ?? 0,
+        latencyMs: failure?.latencyMs ?? 0,
+        error: message
+      }
+    });
+    return NextResponse.json({ error: message, code: getLlmErrorCode(error) }, { status: 502 });
+  }
 
   const rawParsed = safeJsonParse(result.rawText);
   const extracted = rawParsed.ok ? rawParsed : extractFirstJsonObject(result.rawText);
-  const candidate = extracted.ok ? extracted.data : fallbackCharacterTurnOutput;
-  const validated = characterTurnOutputSchema.safeParse(candidate);
-  const output = validated.success
-    ? validated.data
-    : fallbackCharacterTurnOutput;
+  if (!extracted.ok) {
+    const message = "模型返回的内容不是可解析的 JSON。";
+    await prisma.llmCall.create({
+      data: {
+        provider: result.provider,
+        model: result.model,
+        characterId: character.id,
+        requestJson: toInputJson({ systemPrompt, userPrompt, generationBudget: input.generationBudget }),
+        responseJson: toInputJson({ failed: true, rawText: result.rawText, providerResponse: result.providerResponse }),
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+        estimatedCost: result.estimatedCost,
+        latencyMs: result.latencyMs,
+        error: message
+      }
+    });
+    return NextResponse.json({ error: message, code: "model_output_invalid" }, { status: 502 });
+  }
+
+  const validated = characterTurnOutputSchema.safeParse(extracted.data);
+  if (!validated.success) {
+    const details = validated.error.issues
+      .slice(0, 4)
+      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+      .join("; ");
+    const message = `模型返回的 JSON 不符合输出格式：${details}`;
+    await prisma.llmCall.create({
+      data: {
+        provider: result.provider,
+        model: result.model,
+        characterId: character.id,
+        requestJson: toInputJson({ systemPrompt, userPrompt, generationBudget: input.generationBudget }),
+        responseJson: toInputJson({ failed: true, rawText: result.rawText, providerResponse: result.providerResponse }),
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+        estimatedCost: result.estimatedCost,
+        latencyMs: result.latencyMs,
+        error: message
+      }
+    });
+    return NextResponse.json({ error: message, code: "model_output_invalid" }, { status: 502 });
+  }
+  const output = validated.data;
 
   await prisma.llmCall.create({
     data: {
       provider: result.provider,
       model: result.model,
       characterId: character.id,
-      requestJson: toInputJson({ systemPrompt, userPrompt }),
+      requestJson: toInputJson({ systemPrompt, userPrompt, generationBudget: input.generationBudget }),
       responseJson: toInputJson({ rawText: result.rawText, output, providerResponse: result.providerResponse }),
       tokensInput: result.tokensInput,
       tokensOutput: result.tokensOutput,

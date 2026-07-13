@@ -1,7 +1,6 @@
-import {
-  characterTurnOutputSchema,
-  fallbackCharacterTurnOutput
-} from "@/lib/schemas/character-output";
+import { prisma } from "@/lib/db/prisma";
+import { characterTurnOutputSchema } from "@/lib/schemas/character-output";
+import { toInputJson } from "@/lib/utils/json";
 import { extractFirstJsonObject, safeJsonParse } from "@/lib/utils/safe-parse";
 import type { EpisodeGraphState } from "../state";
 
@@ -98,11 +97,50 @@ export async function validateCharacterOutput(state: EpisodeGraphState): Promise
 
   const parsedJson = safeJsonParse(state.characterOutputRaw);
   const extractedJson = parsedJson.ok ? parsedJson : extractFirstJsonObject(state.characterOutputRaw);
-  const candidate = extractedJson.ok ? normalizeCharacterOutputCandidate(extractedJson.data) : fallbackCharacterTurnOutput;
+  const candidate = extractedJson.ok ? normalizeCharacterOutputCandidate(extractedJson.data) : null;
 
-  const parsed = characterTurnOutputSchema.safeParse(candidate);
+  const parsed = candidate === null ? null : characterTurnOutputSchema.safeParse(candidate);
+  if (!parsed?.success) {
+    const details = parsed
+      ? parsed.error.issues
+          .slice(0, 4)
+          .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+          .join("; ")
+      : "返回内容不是可解析的 JSON";
+    const message = `模型输出无效：${details}。`;
+
+    if (state.episode && state.currentSpeakerId && state.builtContext && state.llmResult) {
+      await prisma.llmCall
+        .create({
+          data: {
+            provider: state.llmResult.provider,
+            model: state.llmResult.model,
+            characterId: state.currentSpeakerId,
+            episodeId: state.episode.id,
+            requestJson: toInputJson(state.builtContext),
+            responseJson: toInputJson({
+              failed: true,
+              rawText: state.llmResult.rawText,
+              providerResponse: state.llmResult.providerResponse
+            }),
+            tokensInput: state.llmResult.tokensInput,
+            tokensOutput: state.llmResult.tokensOutput,
+            estimatedCost: state.llmResult.estimatedCost,
+            latencyMs: state.llmResult.latencyMs,
+            error: message
+          }
+        })
+        .catch((recordError) => console.error("Failed to persist invalid LLM output", recordError));
+    }
+
+    return {
+      shouldEnd: true,
+      endReason: "model_output_invalid",
+      error: message
+    };
+  }
 
   return {
-    characterOutputParsed: parsed.success ? parsed.data : fallbackCharacterTurnOutput
+    characterOutputParsed: parsed.data
   };
 }

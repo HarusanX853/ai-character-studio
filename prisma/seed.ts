@@ -145,17 +145,6 @@ const evidence = [
   }
 ];
 
-function formatEvidenceForBoard(item: (typeof evidence)[number]) {
-  return [
-    `Evidence ${item.id}: ${item.title}`,
-    item.content,
-    item.prosecutionView ? `Prosecution view: ${item.prosecutionView}` : null,
-    item.defenseView ? `Defense view: ${item.defenseView}` : null
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n\n");
-}
-
 async function main() {
   await prisma.episodeCheckpoint.deleteMany();
   await prisma.llmCall.deleteMany();
@@ -207,8 +196,9 @@ async function main() {
         maxRounds: 12,
         maxVoteRounds: 5,
         currentVoteRound: 0,
-        allEvidenceVisible: true,
-        releasedEvidenceIds: evidence.map((item) => item.id),
+        caseFactsReleased: false,
+        allEvidenceVisible: false,
+        releasedEvidenceIds: [],
         voteOptions: ["guilty", "not_guilty", "undecided"],
         voteOpen: false,
         activeVoteStageId: null,
@@ -233,36 +223,6 @@ async function main() {
           episodeId: episode.id,
           characterId: character.id,
           roleInEpisode: character.roleArchetype
-        }
-      })
-    )
-  );
-
-  await Promise.all(
-    publicFacts.map((fact) =>
-      prisma.sharedBoardItem.create({
-        data: {
-          episodeId: episode.id,
-          type: "public_fact",
-          content: fact,
-          source: "seed",
-          confidence: 1,
-          tagsJson: json(["seed"])
-        }
-      })
-    )
-  );
-
-  await Promise.all(
-    evidence.map((item) =>
-      prisma.sharedBoardItem.create({
-        data: {
-          episodeId: episode.id,
-          type: "clue",
-          content: formatEvidenceForBoard(item),
-          source: `episode_evidence:${item.id}`,
-          confidence: 1,
-          tagsJson: json(["episode_evidence", item.id])
         }
       })
     )

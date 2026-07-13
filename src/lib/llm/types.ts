@@ -1,3 +1,14 @@
+export type ReasoningEffort = "minimal" | "low" | "medium";
+
+export type GenerationBudget = {
+  totalOutputTokens: number;
+  reasoningTokens: number;
+  answerReserveTokens: number;
+  safetyBufferTokens: number;
+  reasoningEffort: ReasoningEffort;
+  retryReasoningTokens: number;
+};
+
 export type GenerateCharacterTurnInput = {
   provider: string;
   model: string;
@@ -5,6 +16,7 @@ export type GenerateCharacterTurnInput = {
   userPrompt: string;
   responseSchema?: unknown;
   temperature?: number;
+  generationBudget?: GenerationBudget;
   maxTokens?: number;
   metadata?: {
     episodeId?: string;

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { LiveRoom } from "@/components/episodes/LiveRoom";
 import { PageShell } from "@/components/ui/panel";
 import { prisma } from "@/lib/db/prisma";
+import { extractPublicFacts } from "@/lib/shared-board/sync-public-facts-board";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -94,7 +95,8 @@ export default async function EpisodeLivePage({ params }: PageProps) {
           status: episode.status,
           budgetUsd: episode.budgetUsd,
           maxRounds: episode.maxRounds,
-          rulesJson: episode.rulesJson
+          rulesJson: episode.rulesJson,
+          caseFactsAvailable: extractPublicFacts(episode.publicFactsJson).length > 0
         }}
         participants={episode.characters.map((entry) => ({
           character: {

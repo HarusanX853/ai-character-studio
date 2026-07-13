@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { formatEvidenceForBoard, normalizeTrialRules } from "@/lib/jury/trial-state";
+import { formatEvidenceForBoard, getReleasedEvidence, normalizeTrialRules } from "@/lib/jury/trial-state";
 import { toInputJson } from "@/lib/utils/json";
 
 const managedEvidenceSourcePrefix = "episode_evidence:";
@@ -14,12 +14,13 @@ export async function syncEvidenceBoardItems(tx: Prisma.TransactionClient, episo
     }
   });
 
-  if (!rules.evidence.length) {
+  const releasedEvidence = getReleasedEvidence(rules).filter((evidence) => !/^VOTE-\d+$/i.test(evidence.id));
+  if (!releasedEvidence.length) {
     return;
   }
 
   await tx.sharedBoardItem.createMany({
-    data: rules.evidence.map((evidence) => ({
+    data: releasedEvidence.map((evidence) => ({
       episodeId,
       type: "clue",
       content: formatEvidenceForBoard(evidence),
